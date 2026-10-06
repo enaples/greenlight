@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 from gltesting import fixtures
+from .external_bitcoind import ExternalBitcoinD
 from inspect import isgeneratorfunction
 from pathlib import Path
 from pyln.testing.utils import BitcoinD
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.pretty import pprint
-from typing import Any, List
+from typing import Any, List, Optional, Union
+from urllib.parse import urlparse
 import click
 import gltesting
 import json
@@ -31,7 +33,8 @@ logger = logging.getLogger("gltestserver")
 @dataclass
 class TestServer:
     directory: Path
-    bitcoind: BitcoinD
+    bitcoind: Union[BitcoinD, ExternalBitcoinD]
+    bitcoind_rpc_uri: str
     scheduler: gltesting.scheduler.Scheduler
     finalizers: List[Any]
     clients: gltesting.clients.Clients
@@ -52,7 +55,7 @@ class TestServer:
         return {
             "scheduler_grpc_uri": self.scheduler.grpc_addr,
             "grpc_web_proxy_uri": f"http://localhost:{self.grpc_web_proxy.web_port}",
-            "bitcoind_rpc_uri": f"http://rpcuser:rpcpass@localhost:{self.bitcoind.rpcport}",
+            "bitcoind_rpc_uri": self.bitcoind_rpc_uri,
             "cert_path": str(cert_path),
             "ca_crt_path": str(cert_path / "ca.crt"),
             "nobody_crt_path": str(cert_path / "users" / "nobody.crt"),
@@ -60,7 +63,7 @@ class TestServer:
         }
 
 
-def build(base_dir: Path):
+def build(base_dir: Path, bitcoind_rpc: Optional[str] = None):
     # List of teardown functions to call in reverse order.
     finalizers = []
 
@@ -84,14 +87,47 @@ def build(base_dir: Path):
     nobody_id = callfixture(fixtures.nobody_id, cert_directory)
     scheduler_id = callfixture(fixtures.scheduler_id, cert_directory)
     _paths = callfixture(fixtures.paths)
-    bitcoind = callfixture(
-        fixtures.bitcoind,
-        directory=directory,
-        teardown_checks=None,
-    )
+
+    if bitcoind_rpc:
+        u = urlparse(bitcoind_rpc)
+        bitcoind = ExternalBitcoinD(
+            directory=directory / "bitcoind",
+            host=u.hostname,
+            rpcport=u.port,
+            rpcuser=u.username,
+            rpcpassword=u.password,
+        )
+        info = bitcoind.start()
+        logger.info(f"Attached to {info['chain']} bitcoind at height {info['blocks']}")
+        finalizers.append(bitcoind.stop)
+        bitcoind_rpc_uri = bitcoind_rpc
+    else:
+        bitcoind = callfixture(
+            fixtures.bitcoind,
+            directory=directory,
+            teardown_checks=None,
+        )
+        bitcoind_rpc_uri = f"http://rpcuser:rpcpass@localhost:{bitcoind.rpcport}"
+
     scheduler = callfixture(
         fixtures.scheduler, scheduler_id=scheduler_id, bitcoind=bitcoind
     )
+
+    if bitcoind_rpc:
+        # The scheduler fixture mocks `estimatesmartfee` with canned
+        # regtest feerates. Prefer the real estimate from the external
+        # bitcoind, and only fall back to the canned values when it has
+        # too little data (common on quiet custom signets).
+        btcproxy = scheduler.bitcoind
+        canned = btcproxy.mocks["estimatesmartfee"]
+
+        def real_then_canned(r):
+            res = bitcoind.rpc.estimatesmartfee(*r["params"])
+            if "feerate" in res:
+                return {"id": r["id"], "error": None, "result": res}
+            return canned(r)
+
+        btcproxy.mock_rpc("estimatesmartfee", real_then_canned)
 
     clients = callfixture(
         fixtures.clients, directory=directory, scheduler=scheduler, nobody_id=nobody_id
@@ -104,6 +140,7 @@ def build(base_dir: Path):
     return TestServer(
         directory=directory,
         bitcoind=bitcoind,
+        bitcoind_rpc_uri=bitcoind_rpc_uri,
         finalizers=finalizers,
         scheduler=scheduler,
         clients=clients,
@@ -131,7 +168,14 @@ def cli():
     type=click.Path(),
     help="Where to store the metadata.json and .envrc files"
 )
-def run(directory, metadata=None):
+@click.option(
+    "--bitcoind-rpc",
+    help="""
+      Attach to an existing bitcoind, e.g. http://user:pass@host:38332,
+      instead of spawning a regtest one.
+    """,
+)
+def run(directory, metadata=None, bitcoind_rpc=None):
     """Start a gl-testserver instance to test against."""
     if not directory:
         directory = Path(tempfile.gettempdir())
@@ -140,7 +184,7 @@ def run(directory, metadata=None):
 
     metadata = Path(metadata) if metadata else directory
         
-    gl = build(base_dir=directory)
+    gl = build(base_dir=directory, bitcoind_rpc=bitcoind_rpc)
     try:
         meta = gl.metadata()
         metafile = metadata / "metadata.json"

@@ -45,7 +45,7 @@ class Node:
     condition: Condition
 
     def rpc(self) -> LightningRpc:
-        return LightningRpc(self.directory / "regtest" / "lightning-rpc")
+        return LightningRpc(self.directory / self.network / "lightning-rpc")
 
 
 @dataclass

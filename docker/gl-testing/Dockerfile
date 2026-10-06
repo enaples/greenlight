@@ -173,7 +173,7 @@ ENV GRPC_ENABLE_FORK_SUPPORT=0
 ENV CLNVM_CACHE_DIR=/opt/cln
 
 # Enumerate all versions that gl-testing should find
-ENV CLN_PATH=/opt/cln/v0.10.1/usr/local/bin/:/opt/cln/v0.10.2/usr/local/bin/:/opt/cln/v0.11.0.1/usr/local/bin/:/opt/cln/v0.11.2gl2/usr/local/bin/:/opt/cln/v22.11gl1/usr/local/bin/:/opt/cln/v23.05gl1/usr/local/bin/:/opt/cln/v23.08gl1/usr/local/bin/:/opt/cln/v24.02gl1/usr/local/bin/:/opt/cln/v24.11gl1/usr/local/bin/
+ENV CLN_PATH=/opt/cln/v0.10.1/usr/local/bin/:/opt/cln/v0.10.2/usr/local/bin/:/opt/cln/v0.11.0.1/usr/local/bin/:/opt/cln/v0.11.2gl2/usr/local/bin/:/opt/cln/v22.11gl1/usr/local/bin/:/opt/cln/v23.05gl1/usr/local/bin/:/opt/cln/v23.08gl1/usr/local/bin/:/opt/cln/v24.02gl1/usr/local/bin/:/opt/cln/v24.11gl1/usr/local/bin/:/opt/cln/v26.06.8gl1/usr/local/bin/
 
 # Create a non-root user.
 ARG GID=0
