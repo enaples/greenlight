@@ -132,7 +132,9 @@ class NodeProcess(TailableProc):
             "GL_CERT_PATH": self.directory / "certs",
             "PATH": f"{self.version.lightningd.parent}:{libexec_path}:{path}",
             "CLN_VERSION": self.version.name,
-            "GL_NODE_NETWORK": self.network,
+            # gl-plugin has no `signet` variant, and signet shares the
+            # testnet encoding (address hrp, extended keys), so map it.
+            "GL_NODE_NETWORK": "testnet" if self.network == "signet" else self.network,
             "GL_NODE_ID": self.node_id.hex(),
             "GL_NODE_INIT": self.init_msg.hex(),
             "GL_NODE_BIND": self.bind,
