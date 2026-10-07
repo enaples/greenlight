@@ -170,13 +170,50 @@ def cli():
 )
 @click.option(
     "--bitcoind-rpc",
+    envvar="GL_TESTSERVER_BITCOIND_RPC",
     help="""
       Attach to an existing bitcoind, e.g. http://user:pass@host:38332,
       instead of spawning a regtest one.
     """,
 )
-def run(directory, metadata=None, bitcoind_rpc=None):
+@click.option(
+    "--advertise-host",
+    envvar="GL_TESTING_ADVERTISE_HOST",
+    help="""
+      Host or IP that clients use to reach the scheduler and the nodes.
+      Defaults to 'localhost', i.e. clients on the same machine only.
+    """,
+)
+@click.option(
+    "--bind-host",
+    envvar="GL_TESTING_BIND_HOST",
+    help="Interface the nodes listen on, e.g. 0.0.0.0. Defaults to 127.0.0.1.",
+)
+@click.option(
+    "--scheduler-port",
+    type=int,
+    envvar="GL_TESTING_SCHEDULER_PORT",
+    help="Fixed port for the scheduler. Defaults to a random free port.",
+)
+def run(
+    directory,
+    metadata=None,
+    bitcoind_rpc=None,
+    advertise_host=None,
+    bind_host=None,
+    scheduler_port=None,
+):
     """Start a gl-testserver instance to test against."""
+    # gltesting reads these from the environment when it creates the
+    # scheduler, the nodes and their certificates.
+    for var, value in [
+        ("GL_TESTING_ADVERTISE_HOST", advertise_host),
+        ("GL_TESTING_BIND_HOST", bind_host),
+        ("GL_TESTING_SCHEDULER_PORT", scheduler_port),
+    ]:
+        if value:
+            os.environ[var] = str(value)
+
     if not directory:
         directory = Path(tempfile.gettempdir())
     else:
@@ -204,6 +241,25 @@ def run(directory, metadata=None, bitcoind_rpc=None):
             export GL_NOBODY_CRT={meta['nobody_crt_path']}
             export GL_NOBODY_KEY={meta['nobody_key_path']}
             export RUST_LOG=glclient=debub,info
+            """))
+
+        # Same settings, but with certificate paths relative to the file
+        # itself, so the directory can be copied to another machine.
+        clientenv = metadata / "client.env"
+        logger.info(f"Writing client.env file to {clientenv}")
+
+        def rel(p):
+            return os.path.relpath(p, metadata)
+
+        with clientenv.open(mode="w") as f:
+            f.write(textwrap.dedent(f"""\
+            # Source from bash or zsh; paths are relative to this file.
+            _gl_dir="$(cd "$(dirname "${{BASH_SOURCE[0]:-${{(%):-%x}}}}")" && pwd)"
+            export GL_SCHEDULER_GRPC_URI={meta['scheduler_grpc_uri']}
+            export GL_CA_CRT="$_gl_dir/{rel(meta['ca_crt_path'])}"
+            export GL_NOBODY_CRT="$_gl_dir/{rel(meta['nobody_crt_path'])}"
+            export GL_NOBODY_KEY="$_gl_dir/{rel(meta['nobody_key_path'])}"
+            unset _gl_dir
             """))
 
         pprint(meta)

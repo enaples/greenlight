@@ -126,8 +126,12 @@ class NodeProcess(TailableProc):
         libexec_path = self.executable.parent.parent / 'libexec' / 'c-lightning'
 
         self.grpc_port = reserve()
-        self.bind = f"127.0.0.1:{self.grpc_port}"
-        self.grpc_uri = f"https://localhost:{self.grpc_port}"
+        # Defaults keep the node local; the testserver can expose it to
+        # other machines by binding to 0.0.0.0 and advertising its host.
+        bind_host = os.environ.get("GL_TESTING_BIND_HOST", "127.0.0.1")
+        advertise_host = os.environ.get("GL_TESTING_ADVERTISE_HOST", "localhost")
+        self.bind = f"{bind_host}:{self.grpc_port}"
+        self.grpc_uri = f"https://{advertise_host}:{self.grpc_port}"
         self.env.update({
             "GL_CERT_PATH": self.directory / "certs",
             "PATH": f"{self.version.lightningd.parent}:{libexec_path}:{path}",
