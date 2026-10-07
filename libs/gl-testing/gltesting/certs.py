@@ -195,6 +195,9 @@ def gencert(idpath):
     profile = "leaf"
     mycsr = csr.copy()
     mycsr["CN"] = f"GL {idpath}"
+    advertise_host = os.environ.get("GL_TESTING_ADVERTISE_HOST")
+    if advertise_host and advertise_host not in mycsr["hosts"]:
+        mycsr["hosts"] = mycsr["hosts"] + [advertise_host]
     print(mycsr)
     del mycsr["ca"]
 

@@ -108,7 +108,8 @@ class AsyncScheduler(schedgrpc.SchedulerServicer):
 
     @property
     def grpc_addr(self):
-        return f"https://localhost:{self.grpc_port}"
+        host = os.environ.get("GL_TESTING_ADVERTISE_HOST", "localhost")
+        return f"https://{host}:{self.grpc_port}"
 
     async def run(self):
         """Entrypoint for the async runtime to take over."""

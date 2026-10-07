@@ -124,7 +124,7 @@ def nobody_id(users_id):
 
 @pytest.fixture()
 def scheduler(scheduler_id, bitcoind):
-    grpc_port = reserve()
+    grpc_port = int(os.environ.get("GL_TESTING_SCHEDULER_PORT", 0)) or reserve()
 
     # Use a proxy instead of a direct connection. This allows us to
     # control feerates for GL nodes, and they will match non-GL nodes
