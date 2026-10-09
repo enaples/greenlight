@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import random
@@ -70,6 +71,70 @@ def enumerate_cln_versions() -> Dict[str, NodeVersion]:
 
 def generate_secret(len=5):
     return "".join(random.choices(string.ascii_uppercase, k=len))
+
+
+def node_network(requested: str) -> str:
+    """Network to run a newly registered node on.
+
+    Testnet and signet share the address and extended key encoding, so
+    clients without a signet option (e.g. glsdk) register as testnet.
+    When attached to an external signet bitcoind (`GL_TESTING_CHAIN`),
+    run those nodes on signet, or lightningd refuses the backend.
+    """
+    if requested == "testnet" and os.environ.get("GL_TESTING_CHAIN") == "signet":
+        logging.info("Client registered as testnet, running the node on signet")
+        return "signet"
+    return requested
+
+
+def add_lsp_peer(node: Node):
+    """Make a freshly started node peer with the LSP in `GL_TESTING_LSP`.
+
+    `GL_TESTING_LSP` has the form `<node_id>@<host>:<port>`. The node
+    only asks its connected peers for LSPS2 offers, and clients such as
+    glsdk cannot connect peers themselves. gl-plugin reconnects the
+    peers in the `greenlight/peerlist` datastore whenever a signer
+    attaches, so seed the LSP there, and also connect right away in
+    case the signer attached before the entry was written.
+    """
+    lsp = os.environ.get("GL_TESTING_LSP")
+    if not lsp:
+        return
+    lsp_id, addr = lsp.split("@", 1)
+    host, port = addr.rsplit(":", 1)
+
+    def run():
+        rpc_path = node.directory / node.network / "lightning-rpc"
+        for _ in range(100):
+            if rpc_path.exists():
+                break
+            time.sleep(0.1)
+        rpc = node.rpc()
+        try:
+            rpc.call("datastore", {
+                "key": ["greenlight", "peerlist", lsp_id],
+                "string": json.dumps(
+                    {"id": lsp_id, "direction": "out", "addr": addr, "features": ""}
+                ),
+                "mode": "create-or-replace",
+            })
+            logging.info(f"Added LSP {lsp} to the peerlist of {node.node_id.hex()}")
+        except Exception as e:
+            logging.warning(f"Could not add LSP {lsp} to the peerlist: {e}")
+
+        # Connecting needs the signer for the handshake, so retry for a
+        # while until it attaches.
+        for _ in range(12):
+            try:
+                rpc.connect(lsp_id, host, int(port))
+                logging.info(f"Connected {node.node_id.hex()} to LSP {lsp}")
+                return
+            except Exception as e:
+                logging.debug(f"Connecting to LSP {lsp} failed, retrying: {e}")
+                time.sleep(5)
+        logging.warning(f"Gave up connecting {node.node_id.hex()} to LSP {lsp}")
+
+    threading.Thread(target=run, daemon=True).start()
 
 class AsyncScheduler(schedgrpc.SchedulerServicer):
     """A mock scheduler to test against."""
@@ -220,7 +285,7 @@ class AsyncScheduler(schedgrpc.SchedulerServicer):
                 node_id=req.node_id,
                 signer_version=sv,
                 initmsg=req.init_msg,
-                network=req.network,
+                network=node_network(req.network),
                 directory=directory,
                 identity=node_cert,
                 process=None,
@@ -331,6 +396,7 @@ class AsyncScheduler(schedgrpc.SchedulerServicer):
             time.sleep(1)
             with n.condition:
                 n.condition.notify_all()
+            add_lsp_peer(n)
         except Exception as e:
             print(e)
             raise e
