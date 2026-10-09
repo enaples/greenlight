@@ -22,6 +22,7 @@ from glclient import greenlight_pb2 as greenlightpb
 from glclient import scheduler_pb2 as schedpb
 from pyln.client import LightningRpc
 from pyln.testing.utils import BitcoinD
+from purerpc.grpclib.exceptions import NotFoundError
 
 from gltesting import certs
 from gltesting import scheduler_grpc as schedgrpc
@@ -320,6 +321,12 @@ class AsyncScheduler(schedgrpc.SchedulerServicer):
         assert challenge.scope == schedpb.ChallengeScope.RECOVER
         # TODO Verify that the response matches the challenge.
         hex_node_id = challenge.node_id.hex()
+
+        # Answer NOT_FOUND like the real scheduler, so clients such as
+        # glsdk's register_or_recover fall back to registering. Without
+        # this, signing with the missing per-user CA fails instead.
+        if not any(n.node_id == challenge.node_id for n in self.nodes):
+            raise NotFoundError(f"Recovery failed: no node with node_id={hex_node_id}")
 
         # Check if the request contains a csr and use it to generate the
         # certificate. Use the old flow if csr is not present.
