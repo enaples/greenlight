@@ -197,14 +197,6 @@ def cli():
     envvar="GL_TESTING_SCHEDULER_PORT",
     help="Fixed port for the scheduler. Defaults to a random free port.",
 )
-@click.option(
-    "--lsp",
-    envvar="GL_TESTING_LSP",
-    help="""
-      LSPS2 node every started node peers with, as <node_id>@<host>:<port>.
-      Lets clients that cannot connect peers (e.g. glsdk) get JIT channels.
-    """,
-)
 def run(
     directory,
     metadata=None,
@@ -212,7 +204,6 @@ def run(
     advertise_host=None,
     bind_host=None,
     scheduler_port=None,
-    lsp=None,
 ):
     """Start a gl-testserver instance to test against."""
     # gltesting reads these from the environment when it creates the
@@ -221,7 +212,6 @@ def run(
         ("GL_TESTING_ADVERTISE_HOST", advertise_host),
         ("GL_TESTING_BIND_HOST", bind_host),
         ("GL_TESTING_SCHEDULER_PORT", scheduler_port),
-        ("GL_TESTING_LSP", lsp),
     ]:
         if value:
             os.environ[var] = str(value)
